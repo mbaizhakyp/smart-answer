@@ -1,0 +1,28 @@
+{
+    "manifest_version": 3,
+    "name": "Smart Answer - Blackboard Assistant",
+    "version": "1.0",
+    "description": "AI-powered assistant for answering questions on Blackboard.",
+    "permissions": [
+        "activeTab",
+        "scripting"
+    ],
+    "host_permissions": [
+        "*://*.blackboard.com/*",
+        "http://localhost:8000/*"
+    ],
+    "content_scripts": [
+        {
+            "matches": [
+                "*://*.blackboard.com/*"
+            ],
+            "js": [
+                "content.js"
+            ],
+            "css": [
+                "styles.css"
+            ],
+            "all_frames": true
+        }
+    ]
+}
