@@ -15,9 +15,14 @@ Smart Answer is a Chrome Extension designed to assist students by identifying qu
 ## Setup
 ### Backend
 1. Navigate to `/backend`.
-2. Install dependencies: `pip install -r requirements.txt`.
-3. Create a `.env` file with `OPENAI_API_KEY=your_key_here`.
-4. Run the server: `uvicorn main:app --reload`.
+2. Create and activate a virtual environment:
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+3. Install dependencies: `pip install -r requirements.txt`.
+4. Create a `.env` file with `OPENAI_API_KEY=your_key_here`.
+5. Run the server: `uvicorn main:app --reload`.
 
 ### Extension
 1. Open Chrome and navigate to `chrome://extensions`.
