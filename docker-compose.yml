@@ -1,0 +1,14 @@
+services:
+  backend:
+    build: ./backend
+    container_name: smart-answer-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - ./backend:/app
+    # Restart checks for changes if using volumes, but uvicorn reload handles it inside if configured.
+    # We are running standard command, reload is not default in Dockerfile CMD unless specified.
+    # For dev, we can override command:
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
