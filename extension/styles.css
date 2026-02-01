@@ -1,2 +1,11 @@
 /* Smart Answer - Stealth Mode */
-/* No visual elements needed */
+
+/* Visual feedback for auto-selected answers */
+.smart-answer-selected {
+    outline: 2px solid #4CAF50 !important;
+    /* Green outline */
+    background-color: #e8f5e9 !important;
+    /* Light green background */
+    transition: background-color 0.5s ease;
+    border-radius: 4px;
+}

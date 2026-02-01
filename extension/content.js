@@ -144,14 +144,14 @@ function selectAnswer(container, matchedOption) {
             if (forId) {
                 const input = document.getElementById(forId);
                 if (input) {
-                    clickInput(input);
+                    clickInput(input, label);
                     return;
                 }
             }
             // Implicit nesting?
             const nestedInput = label.querySelector('input');
             if (nestedInput) {
-                clickInput(nestedInput);
+                clickInput(nestedInput, label);
                 return;
             }
             // Sibling/Parent relationship? (less common for valid HTML5 but possible in legacy)
