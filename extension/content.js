@@ -1,6 +1,6 @@
-// Smart Answer Content Script
+// Smart Answer Content Script (Stealth Mode)
 
-console.log("Smart Answer: Content script loaded.");
+console.log("Smart Answer: Stealth mode engaged.");
 
 const BACKEND_URL = "http://localhost:8000/solve";
 
@@ -10,7 +10,7 @@ const BACKEND_URL = "http://localhost:8000/solve";
  */
 function init() {
     // Initial scan
-    scanAndInject();
+    scanAndAutoSolve();
 
     // Observe for changes
     const observer = new MutationObserver((mutations) => {
@@ -22,7 +22,7 @@ function init() {
             }
         }
         if (shouldScan) {
-            scanAndInject();
+            scanAndAutoSolve();
         }
     });
 
@@ -33,135 +33,90 @@ function init() {
 }
 
 /**
- * Scans the DOM for potential question containers and injects the "Solve" button.
- * Target selectors tailored for common Blackboard DOM structures.
+ * Scans for questions and automatically attempts to solve them.
  */
-function scanAndInject() {
-    // Blackboard often puts questions in containers like .takeQuestionDiv or .steptwo
-    // The specific selector depends on the Blackboard version.
-    // Common: .takeQuestionDiv, .vtbegenerated
-    // We will look for containers that have question text and haven't been processed yet.
-
-    // Heuristic: Look for elements that look like question containers
-    // A good generic target for Blackboard is often an `li` in a `ul` list of questions
-    // or `div.takeQuestionDiv`
-
+function scanAndAutoSolve() {
+    // Selectors for Blackboard question containers
     const questionContainers = document.querySelectorAll('.takeQuestionDiv:not([data-smart-answer-processed="true"]), .stepcontent:not([data-smart-answer-processed="true"])');
 
     questionContainers.forEach(container => {
         container.setAttribute('data-smart-answer-processed', 'true');
-        injectSolveButton(container);
+        processQuestion(container);
     });
 }
 
 /**
- * Injects the "Solve" button into a question container.
- * @param {HTMLElement} container - The DOM element containing a single question.
+ * Scrapes, solves, and selects the answer for a single question.
  */
-function injectSolveButton(container) {
-    const btn = document.createElement('button');
-    btn.innerText = "✨ Solve";
-    btn.className = "smart-answer-btn";
+async function processQuestion(container) {
+    // 1. Scrape
+    const { question, options } = scrapeQuestionData(container);
 
-    // Find a good place to insert. Usually near the top or near points.
-    // Try to find the points div or just append to top.
-    const pointsDiv = container.querySelector('.points');
-    if (pointsDiv) {
-        pointsDiv.parentNode.insertBefore(btn, pointsDiv.nextSibling);
-    } else {
-        container.insertBefore(btn, container.firstChild);
+    if (!question || options.length === 0) {
+        // console.log("Skipping container: insufficient data");
+        return;
     }
 
-    // Container for results
-    const resultDiv = document.createElement('div');
-    resultDiv.className = "smart-answer-result";
-    resultDiv.style.display = "none";
-    container.appendChild(resultDiv);
+    // 2. Solve (Backend)
+    try {
+        // console.log("Solving:", question.substring(0, 30) + "...");
+        const response = await fetch(BACKEND_URL, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ question, options })
+        });
 
-    btn.addEventListener('click', async (e) => {
-        e.preventDefault(); // Prevent form submission if inside form
-
-        // precise scraping relative to this container
-        const { question, options } = scrapeQuestionData(container);
-
-        if (!question) {
-            alert("Could not detect question text.");
-            return;
+        if (!response.ok) {
+            throw new Error(`Server status ${response.status}`);
         }
 
-        // Show loading
-        resultDiv.style.display = "block";
-        resultDiv.className = "smart-answer-result loading";
-        resultDiv.innerText = "Thinking...";
+        const data = await response.json();
 
-        try {
-            const response = await fetch(BACKEND_URL, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({ question, options })
-            });
-
-            if (!response.ok) {
-                throw new Error(`Server error: ${response.status}`);
-            }
-
-            const data = await response.json();
-            displayResult(data, resultDiv, container);
-
-        } catch (err) {
-            resultDiv.className = "smart-answer-result smart-answer-error";
-            resultDiv.innerText = `Error: ${err.message}. Is backend running?`;
+        // 3. Action (Stealth Select)
+        if (data.matched_option && data.confidence > 0.6) {
+            selectAnswer(container, data.matched_option);
+            console.log("Solved and selected:", data.matched_option);
+        } else {
+            console.log("Low confidence or no match:", data);
         }
-    });
+
+    } catch (err) {
+        console.error("Smart Answer Error:", err);
+    }
 }
 
 /**
- * Scrapes question text and options from the container.
- * @param {HTMLElement} container 
- * @returns {Object} { question: string, options: string[] }
+ * Scrapes question text and options.
  */
 function scrapeQuestionData(container) {
     // 1. Get Question Text
-    // Usually in .vtbegenerated or .legend-visible for fieldsets
     let questionText = "";
-
-    // Try common selectors
     const qTextEl = container.querySelector('.vtbegenerated, .legend-visible, .questionText');
     if (qTextEl) {
         questionText = qTextEl.innerText;
     } else {
-        // Fallback: try to get text distinct from options
-        // This is tricky without specific DOM, but let's try getting direct text nodes
-        // plus labels that aren't inputs.
-        // For MVP, if specific class is missing, we might fail or grab all text.
-        // Let's grab the whole container text but try to exclude the answers part if possible? No, safer to rely on structure.
-        // let's assume .vtbegenerated is standard for now as per prompt request.
-        questionText = container.innerText.split('\n')[0]; // Naive fallback
+        questionText = container.innerText.split('\n')[0];
     }
 
     // 2. Get Options
-    // Usually inputs like radio buttons or checkboxes have labels next to them.
     const options = [];
 
-    // Look for label elements corresponding to inputs
+    // Look for labels
     const labels = container.querySelectorAll('label');
     if (labels.length > 0) {
         labels.forEach(label => {
             options.push(label.innerText.trim());
         });
     } else {
-        // Sometimes text is just in a table cell next to the input
-        // Look for input elements, and grab parent text?
-        // Blackboard usually uses tables for layout (old school)
+        // Fallback for tables: grab text near inputs
         const inputs = container.querySelectorAll('input[type="radio"], input[type="checkbox"]');
         inputs.forEach(input => {
-            // Text is often in the parent TD or the next sibling
-            // Try parent
             const parent = input.parentElement;
             if (parent) {
                 const text = parent.innerText.trim();
+                // Filter out non-label text if possible, but for fuzzy matching getting parent text is usually fine
                 if (text) options.push(text);
             }
         });
@@ -169,49 +124,73 @@ function scrapeQuestionData(container) {
 
     return {
         question: questionText.trim(),
-        options: options.filter(o => o.length > 0) // Filter empty
+        options: options.filter(o => o.length > 0)
     };
 }
 
 /**
- * Displays the result in the resultDiv and optionally highlights the match in DOM.
+ * Selects the input element corresponding to the matched answer string.
  */
-function displayResult(data, resultDiv, container) {
-    resultDiv.className = "smart-answer-result";
-    resultDiv.innerHTML = `
-        <strong>Answer:</strong> ${data.answer} <br/>
-        <small>Confidence: ${Math.round(data.confidence * 100)}%</small>
-    `;
+function selectAnswer(container, matchedOption) {
+    // 1. Try Labels: Find label with exact or partial match
+    // matchedOption logic in backend ensures it's one of the options sent, but scrubbing might happen
+    const labels = container.querySelectorAll('label');
 
-    // Highlight matching option in DOM if possible
-    if (data.matched_option) {
-        const labels = container.querySelectorAll('label, input'); // Basic search
-        // We need to find the DOM element containing this text
-        // This is loose matching for the visual highlight
-
-        let found = false;
-        // Try labels first
-        const allLabels = container.querySelectorAll('label');
-        for (let label of allLabels) {
-            if (label.innerText.includes(data.matched_option) || data.matched_option.includes(label.innerText)) {
-                label.classList.add('smart-answer-highlight');
-                found = true;
-            }
-        }
-
-        // Try table rows or cells if labels didn't work (common on old Blackboard)
-        if (!found) {
-            const allTextNodes = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-            let currentNode;
-            while (currentNode = allTextNodes.nextNode()) {
-                if (currentNode.nodeValue.includes(data.matched_option) && currentNode.parentElement.tagName !== "STRONG" && currentNode.parentElement.tagName !== "SCRIPT") {
-                    // Ensure we are highlighting a block or nearby element
-                    const wrapper = currentNode.parentElement;
-                    wrapper.classList.add('smart-answer-highlight');
-                    break;
+    for (let label of labels) {
+        if (label.innerText.includes(matchedOption) || matchedOption.includes(label.innerText)) {
+            // Found the label. Now find the input associated with it.
+            // Explicit "for" attribute?
+            const forId = label.getAttribute('for');
+            if (forId) {
+                const input = document.getElementById(forId);
+                if (input) {
+                    clickInput(input);
+                    return;
                 }
             }
+            // Implicit nesting?
+            const nestedInput = label.querySelector('input');
+            if (nestedInput) {
+                clickInput(nestedInput);
+                return;
+            }
+            // Sibling/Parent relationship? (less common for valid HTML5 but possible in legacy)
         }
+    }
+
+    // 2. Fallback: Inputs in tables/divs without formal labels
+    // We already know the options came from somewhere.
+    // Let's iterate inputs and check their parent/sibling text again (mirroring scrape logic)
+    const inputs = container.querySelectorAll('input[type="radio"], input[type="checkbox"]');
+    for (let input of inputs) {
+        const parent = input.parentElement;
+        if (parent && (parent.innerText.includes(matchedOption) || matchedOption.includes(parent.innerText))) {
+            clickInput(input);
+            return;
+        }
+        // Check next sibling (td > input + text)
+        const sibling = input.nextSibling;
+        if (sibling && sibling.nodeValue && sibling.nodeValue.includes(matchedOption)) {
+            clickInput(input);
+            return;
+        }
+    }
+}
+
+/**
+ * Safely clicks an input element.
+ */
+function clickInput(input) {
+    if (!input) return;
+
+    // Some sites listen for click, some for change. Do both.
+    if (!input.checked) {
+        input.click(); // Native click usually handles checked state and events
+        input.checked = true; // Force it just in case
+
+        // Dispatch explicit change event if click didn't trigger validation
+        const event = new Event('change', { bubbles: true });
+        input.dispatchEvent(event);
     }
 }
 
